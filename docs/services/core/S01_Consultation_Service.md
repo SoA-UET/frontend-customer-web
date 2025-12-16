@@ -177,6 +177,19 @@ anything else.
 2. S01 updates the corresponding conversation
     record in its database with the new summary.
 
+### Subthread Flow 3: Message Emotion Update
+
+This is asynchronous and must be done in a separate thread,
+without waiting for it to complete before returning
+the AI-generated response to the customer, or doing
+anything else.
+
+1. S19 returns the message emotion update
+    to S01 via A36.
+
+2. S01 updates the corresponding message
+    record in its database with the new emotion.
+
 ### Flow 2: AI Agent Handling (Voice Call)
 
 This corresponds to UC-03 where the AI Agent
