@@ -38,7 +38,7 @@ class SocketService {
     this.socket.on('connect', () => {
       console.log('Socket.IO connected:', this.socket?.id);
       // Re-register all callbacks on reconnection
-      // this.reregisterCallbacks();
+      this.reregisterCallbacks();
       // Re-join room if there was one
       if (this.currentRoom) {
         this.socket?.emit('join', { conversation_id: this.currentRoom });
@@ -48,6 +48,7 @@ class SocketService {
 
     this.socket.on('disconnect', (reason) => {
       console.log('Socket.IO disconnected:', reason);
+      this.socket?.removeAllListeners();
     });
 
     this.socket.on('connect_error', (error) => {
