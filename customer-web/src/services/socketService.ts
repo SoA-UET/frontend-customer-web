@@ -17,6 +17,7 @@ type EventCallback<T> = (payload: T) => void;
 class SocketService {
   private socket: Socket | null = null;
   private currentRoom: string | null = null;
+  private eventCallbacks: Map<string, EventCallback<any>[]> = new Map();
 
   /**
    * Connect to Socket.IO server with JWT authentication
@@ -36,6 +37,13 @@ class SocketService {
 
     this.socket.on('connect', () => {
       console.log('Socket.IO connected:', this.socket?.id);
+      // Re-register all callbacks on reconnection
+      this.reregisterCallbacks();
+      // Re-join room if there was one
+      if (this.currentRoom) {
+        this.socket?.emit('join', { conversation_id: this.currentRoom });
+        console.log('Rejoined room on reconnection:', this.currentRoom);
+      }
     });
 
     this.socket.on('disconnect', (reason) => {
@@ -50,6 +58,18 @@ class SocketService {
   }
 
   /**
+   * Re-register all stored callbacks after reconnection
+   */
+  private reregisterCallbacks(): void {
+    this.eventCallbacks.forEach((callbacks, event) => {
+      callbacks.forEach((callback) => {
+        this.socket?.on(event, callback);
+      });
+    });
+    console.log('Re-registered callbacks for events:', Array.from(this.eventCallbacks.keys()));
+  }
+
+  /**
    * Disconnect from Socket.IO server
    */
   disconnect(): void {
@@ -57,7 +77,19 @@ class SocketService {
       this.socket.disconnect();
       this.socket = null;
       this.currentRoom = null;
+      // Note: We keep eventCallbacks so they can be re-registered on reconnect
     }
+  }
+
+  /**
+   * Register a callback and store it for re-registration on reconnect
+   */
+  private registerCallback<T>(event: string, callback: EventCallback<T>): void {
+    if (!this.eventCallbacks.has(event)) {
+      this.eventCallbacks.set(event, []);
+    }
+    this.eventCallbacks.get(event)!.push(callback);
+    this.socket?.on(event, callback);
   }
 
   /**
@@ -94,15 +126,15 @@ class SocketService {
   // ============================================
 
   onTextStart(callback: EventCallback<TextStartPayload>): void {
-    this.socket?.on('text_start', callback);
+    this.registerCallback('text_start', callback);
   }
 
   onTextChunk(callback: EventCallback<TextChunkPayload>): void {
-    this.socket?.on('text_chunk', callback);
+    this.registerCallback('text_chunk', callback);
   }
 
   onTextStop(callback: EventCallback<TextStopPayload>): void {
-    this.socket?.on('text_stop', callback);
+    this.registerCallback('text_stop', callback);
   }
 
   // ============================================
@@ -110,7 +142,7 @@ class SocketService {
   // ============================================
 
   onStatusSwitch(callback: EventCallback<StatusSwitchPayload>): void {
-    this.socket?.on('status_switch', callback);
+    this.registerCallback('status_switch', callback);
   }
 
   // ============================================
@@ -170,28 +202,28 @@ class SocketService {
    * Listen for audio_start from server
    */
   onAudioStart(callback: EventCallback<AudioStartPayload>): void {
-    this.socket?.on('audio_start', callback);
+    this.registerCallback('audio_start', callback);
   }
 
   /**
    * Listen for audio_chunk from server
    */
   onAudioChunk(callback: (payload: { conversation_id: string; audio: ArrayBuffer }) => void): void {
-    this.socket?.on('audio_chunk', callback);
+    this.registerCallback('audio_chunk', callback);
   }
 
   /**
    * Listen for audio_stop from server
    */
   onAudioStop(callback: EventCallback<AudioStopPayload>): void {
-    this.socket?.on('audio_stop', callback);
+    this.registerCallback('audio_stop', callback);
   }
 
   /**
    * Listen for audio_file from server (TTS output)
    */
   onAudioFile(callback: EventCallback<AudioFilePayload>): void {
-    this.socket?.on('audio_file', callback);
+    this.registerCallback('audio_file', callback);
   }
 
   // ============================================
@@ -203,6 +235,7 @@ class SocketService {
    */
   off(event: string): void {
     this.socket?.off(event);
+    this.eventCallbacks.delete(event);
   }
 
   /**
@@ -210,6 +243,7 @@ class SocketService {
    */
   removeAllListeners(): void {
     this.socket?.removeAllListeners();
+    this.eventCallbacks.clear();
   }
 
   /**
