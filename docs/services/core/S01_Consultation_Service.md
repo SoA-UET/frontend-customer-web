@@ -142,7 +142,7 @@ This flow happens when the conversation
 
 6. Core Consultation Service returns the AI-generated
     response coming in several chunks to Core Portal (Frontend) via H19
-    (`text:start`, `text:chunk` and `text:stop` events).
+    (`text_start`, `text_chunk` and `text_stop` events).
 
 7. Core Consultation Service (S01) also collects
     the AI-generated response chunks, concatenates
@@ -219,7 +219,7 @@ This flow happens when the conversation
     clicks the "Call" button to start a voice call.
 
 2. The frontend notifies Core Consultation Service (this service)
-    via H19 event `call:start`
+    via H19 event `call_start`
     that the customer is about to start a voice call on
     this conversation.
 
@@ -274,7 +274,7 @@ This flow happens when the conversation
     via A38.
 
 11. Core Consultation Service returns the audio data
-    to Core Portal (Frontend) via H19 event `audio:file`.
+    to Core Portal (Frontend) via H19 event `audio_file`.
 
 12. The frontend plays the audio data
     to the customer. **After the playing finished,**
@@ -283,12 +283,12 @@ This flow happens when the conversation
 
 13. When the customer clicks the "End Call" button,
     the frontend notifies Core Consultation Service (this service)
-    via H19 event `call:end`.
+    via H19 event `call_end`.
 
 14. S01 updates the conversation status back to `AI_AGENT_TEXTING`
     when:
 
-    - it receives an explicit H19 `call:end` event from the client, or
+    - it receives an explicit H19 `call_end` event from the client, or
     - the client disconnects from Socket.IO and does not reconnect within a configured timeout.
 
 ### Flow 3: Forwarding to Partner
@@ -357,7 +357,7 @@ or any audio input).
     to `HUMAN_AGENT_TEXTING`.
 
 6. The forwarding process completes. Core Consultation Service (S01)
-    notifies Core Portal (Frontend) via H19 event `status:switch`
+    notifies Core Portal (Frontend) via H19 event `status_switch`
     that the conversation status has changed to `HUMAN_AGENT_TEXTING`.
 
 ### Flow 4: Human Agent Handling (Text)
@@ -406,12 +406,12 @@ This flow only happens when the conversation
     clicks the "Call" button to start a voice call.
 
 2. The frontend notifies Core Consultation Service (this service)
-    via H19 event `call:start`
+    via H19 event `call_start`
     that the customer is about to start a voice call on
     this conversation. While waiting, the
     frontend shows a "Connecting to human agent..." message.
 
-3. S01, upon receiving that `call:start` event,
+3. S01, upon receiving that `call_start` event,
     and notifies Partner Consultation Service (S13)
     that the customer is starting a voice call, via
     A10a event `call_start`.
@@ -423,7 +423,7 @@ This flow only happens when the conversation
     via A10b (event `call_pickup`).
 
 5. S01, upon receiving that `call_pickup` event,
-    notifies the frontend via H19 event `status:switch`
+    notifies the frontend via H19 event `status_switch`
     that the conversation status has changed to `HUMAN_AGENT_CALLING`.
 
 6. The frontend removes the "Connecting to human agent..." message,
@@ -447,9 +447,9 @@ This flow only happens when the conversation
 
 8. When the customer clicks the "End Call" button,
     the frontend notifies Core Consultation Service (this service)
-    via H19 event `call:end`.
+    via H19 event `call_end`.
 
-9. S01, upon receiving that `call:end` event,
+9. S01, upon receiving that `call_end` event,
     notifies Partner Consultation Service (S13)
     via A10a event `call_end`. S01 then
     updates the conversation status back to `HUMAN_AGENT_TEXTING`.
@@ -458,7 +458,7 @@ This flow only happens when the conversation
     the `call_end` event, sets the conversation status
     to `HUMAN_AGENT_TEXTING` on its side, too.
 
-11. S01 notifies the frontend via H19 event `status:switch`
+11. S01 notifies the frontend via H19 event `status_switch`
     that the conversation status has changed back to `HUMAN_AGENT_TEXTING`.
 
 12. The frontend goes back to normal texting mode.
