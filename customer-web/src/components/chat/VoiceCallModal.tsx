@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useConversation } from '../../contexts';
+import { useMicVAD } from '@ricky0123/vad-react';
+import { socketService } from '../../services';
 import {
   Phone,
   PhoneOff,
@@ -32,11 +34,43 @@ export default function VoiceCallModal({ onClose }: VoiceCallModalProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [callStatus, setCallStatus] = useState<'connecting' | 'connected' | 'ended'>('connecting');
 
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
   const audioContextRef = useRef<AudioContext | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const durationIntervalRef = useRef<number | null>(null);
+  const audioWorkletNodeRef = useRef<AudioWorkletNode | null>(null);
+
+  // Determine call mode based on conversation status
+  const isAICall = currentConversation?.status === 'AI_AGENT_CALLING';
+  const isHumanCall = currentConversation?.status === 'HUMAN_AGENT_CALLING';
+
+  // VAD configuration for AI_AGENT_CALLING mode
+  const vad = useMicVAD({
+    startOnLoad: false,
+    onSpeechStart: () => {
+      console.log('VAD: Speech started');
+      setIsRecording(true);
+    },
+    onSpeechEnd: async (audio: Float32Array) => {
+      console.log('VAD: Speech ended, submitting audio');
+      setIsRecording(false);
+      
+      if (currentConversation && isAICall) {
+        // Convert Float32Array to WAV format and submit
+        const wavBlob = convertFloat32ToWav(audio, 16000);
+        await submitAudio(wavBlob);
+      }
+    },
+    onVADMisfire: () => {
+      console.log('VAD: Misfire detected');
+      setIsRecording(false);
+    },
+    positiveSpeechThreshold: 0.8,
+    negativeSpeechThreshold: 0.8 - 0.15,
+    redemptionFrames: 8,
+    preSpeechPadFrames: 1,
+    minSpeechFrames: 3,
+    submitUserSpeechOnPause: true,
+  });
 
   // Start call timer
   useEffect(() => {
@@ -53,16 +87,31 @@ export default function VoiceCallModal({ onClose }: VoiceCallModalProps) {
     };
   }, [callStatus]);
 
-  // Initialize audio context and start recording
+  // Initialize audio context and start appropriate recording mode
   useEffect(() => {
     const initAudio = async () => {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+            sampleRate: 16000,
+          } 
+        });
         streamRef.current = stream;
         audioContextRef.current = new AudioContext({ sampleRate: 16000 });
         
         setCallStatus('connected');
-        startRecording(stream);
+        
+        // Start appropriate recording mode based on conversation status
+        if (isAICall) {
+          // Use VAD for AI_AGENT_CALLING
+          vad.start();
+        } else if (isHumanCall) {
+          // Stream PCM chunks for HUMAN_AGENT_CALLING
+          startPCMStreaming(stream);
+        }
       } catch (error) {
         console.error('Failed to access microphone:', error);
         alert('Không thể truy cập microphone. Vui lòng cấp quyền và thử lại.');
@@ -75,7 +124,9 @@ export default function VoiceCallModal({ onClose }: VoiceCallModalProps) {
     }
 
     return () => {
-      stopRecording();
+      // Cleanup
+      vad.pause();
+      stopPCMStreaming();
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
       }
@@ -83,7 +134,7 @@ export default function VoiceCallModal({ onClose }: VoiceCallModalProps) {
         audioContextRef.current.close();
       }
     };
-  }, [isCallActive]);
+  }, [isCallActive, isAICall, isHumanCall]);
 
   // Handle audio playback from server
   useEffect(() => {
@@ -93,66 +144,81 @@ export default function VoiceCallModal({ onClose }: VoiceCallModalProps) {
     }
   }, [audioToPlay, clearAudioToPlay]);
 
-  const startRecording = (stream: MediaStream) => {
-    const mediaRecorder = new MediaRecorder(stream, {
-      mimeType: 'audio/webm',
-    });
-    
-    mediaRecorderRef.current = mediaRecorder;
-    audioChunksRef.current = [];
+  // PCM Streaming for HUMAN_AGENT_CALLING mode
+  const startPCMStreaming = async (stream: MediaStream) => {
+    if (!audioContextRef.current || !currentConversation) return;
 
-    mediaRecorder.ondataavailable = (event) => {
-      if (event.data.size > 0) {
-        audioChunksRef.current.push(event.data);
-      }
-    };
-
-    mediaRecorder.onstop = async () => {
-      if (audioChunksRef.current.length > 0) {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-        // Convert to WAV format if needed
-        await submitAudioRecording(audioBlob);
-      }
-    };
-
-    mediaRecorder.start();
-    setIsRecording(true);
-  };
-
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop();
-      setIsRecording(false);
-    }
-  };
-
-  const submitAudioRecording = async (audioBlob: Blob) => {
     try {
-      // For AI_AGENT_CALLING mode, submit via HTTP endpoint
-      if (currentConversation?.status === 'AI_AGENT_CALLING') {
-        // Convert webm to wav
-        const wavBlob = await convertToWav(audioBlob);
-        await submitAudio(wavBlob);
-      }
+      const audioContext = audioContextRef.current;
+      const source = audioContext.createMediaStreamSource(stream);
+      
+      // Create ScriptProcessorNode for processing audio in chunks
+      const bufferSize = 4096;
+      const processor = audioContext.createScriptProcessor(bufferSize, 1, 1);
+      
+      // Emit audio_start
+      socketService.emitAudioStart(currentConversation.id);
+      
+      let pcmBuffer: Int16Array = new Int16Array(0);
+      const targetChunkSize = 320; // 320 samples = 20ms at 16kHz
+      
+      processor.onaudioprocess = (e) => {
+        if (isMuted) return;
+        
+        const inputData = e.inputBuffer.getChannelData(0);
+        
+        // Convert Float32 to Int16
+        const int16Data = new Int16Array(inputData.length);
+        for (let i = 0; i < inputData.length; i++) {
+          const s = Math.max(-1, Math.min(1, inputData[i]));
+          int16Data[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+        }
+        
+        // Append to buffer
+        const newBuffer = new Int16Array(pcmBuffer.length + int16Data.length);
+        newBuffer.set(pcmBuffer);
+        newBuffer.set(int16Data, pcmBuffer.length);
+        pcmBuffer = newBuffer;
+        
+        // Send chunks of exactly 320 samples (640 bytes)
+        while (pcmBuffer.length >= targetChunkSize) {
+          const chunk = pcmBuffer.slice(0, targetChunkSize);
+          pcmBuffer = pcmBuffer.slice(targetChunkSize);
+          
+          // Send via Socket.IO
+          const arrayBuffer = chunk.buffer.slice(
+            chunk.byteOffset,
+            chunk.byteOffset + chunk.byteLength
+          );
+          socketService.emitAudioChunk(currentConversation.id, arrayBuffer);
+        }
+      };
+      
+      source.connect(processor);
+      processor.connect(audioContext.destination);
+      
+      audioWorkletNodeRef.current = processor as any;
+      setIsRecording(true);
     } catch (error) {
-      console.error('Failed to submit audio:', error);
+      console.error('Failed to start PCM streaming:', error);
     }
   };
 
-  const convertToWav = async (blob: Blob): Promise<Blob> => {
-    // Simple conversion - in production, use a proper library
-    const arrayBuffer = await blob.arrayBuffer();
-    const audioContext = new AudioContext({ sampleRate: 16000 });
-    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+  const stopPCMStreaming = () => {
+    if (audioWorkletNodeRef.current) {
+      audioWorkletNodeRef.current.disconnect();
+      audioWorkletNodeRef.current = null;
+    }
     
-    // Get PCM data
-    const channelData = audioBuffer.getChannelData(0);
-    const wavBuffer = encodeWav(channelData, 16000);
+    if (currentConversation && isHumanCall) {
+      socketService.emitAudioStop(currentConversation.id);
+    }
     
-    return new Blob([wavBuffer], { type: 'audio/wav' });
+    setIsRecording(false);
   };
 
-  const encodeWav = (samples: Float32Array, sampleRate: number): ArrayBuffer => {
+  // Convert Float32Array to WAV format
+  const convertFloat32ToWav = (samples: Float32Array, sampleRate: number): Blob => {
     const buffer = new ArrayBuffer(44 + samples.length * 2);
     const view = new DataView(buffer);
 
@@ -179,7 +245,7 @@ export default function VoiceCallModal({ onClose }: VoiceCallModalProps) {
       offset += 2;
     }
 
-    return buffer;
+    return new Blob([buffer], { type: 'audio/wav' });
   };
 
   const writeString = (view: DataView, offset: number, string: string) => {
@@ -191,6 +257,12 @@ export default function VoiceCallModal({ onClose }: VoiceCallModalProps) {
   const playAudio = async (audioData: ArrayBuffer) => {
     try {
       setIsPlaying(true);
+      
+      // Pause VAD during playback if in AI mode
+      if (isAICall) {
+        vad.pause();
+      }
+      
       const audioContext = new AudioContext();
       const audioBuffer = await audioContext.decodeAudioData(audioData.slice(0));
       const source = audioContext.createBufferSource();
@@ -198,27 +270,37 @@ export default function VoiceCallModal({ onClose }: VoiceCallModalProps) {
       source.connect(audioContext.destination);
       source.onended = () => {
         setIsPlaying(false);
-        // Resume recording after playback
-        if (streamRef.current && !isRecording) {
-          startRecording(streamRef.current);
+        audioContext.close();
+        
+        // Resume VAD after playback if in AI mode
+        if (isAICall && isCallActive) {
+          vad.start();
         }
       };
       source.start();
     } catch (error) {
       console.error('Failed to play audio:', error);
       setIsPlaying(false);
+      
+      // Resume VAD even on error
+      if (isAICall && isCallActive) {
+        vad.start();
+      }
     }
   };
 
   const handleHangUp = useCallback(() => {
-    stopRecording();
+    vad.pause();
+    stopPCMStreaming();
+    
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => track.stop());
     }
+    
     setCallStatus('ended');
     endCall();
     setTimeout(onClose, 500);
-  }, [endCall, onClose]);
+  }, [endCall, onClose, vad]);
 
   const handleToggleMute = () => {
     if (streamRef.current) {
@@ -234,8 +316,6 @@ export default function VoiceCallModal({ onClose }: VoiceCallModalProps) {
     const secs = seconds % 60;
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
-
-  const isAICall = currentConversation?.status === 'AI_AGENT_CALLING';
 
   return (
     <div className="fixed inset-0 bg-gradient-to-b from-primary-800 to-primary-900 flex flex-col items-center justify-center z-50">

@@ -124,12 +124,16 @@ export function ConversationProvider({ children }: { children: ReactNode }) {
         )
       );
 
-      // If call ended due to status change
-      if (
-        payload.old_status === 'AI_AGENT_CALLING' &&
-        payload.new_status !== 'AI_AGENT_CALLING'
-      ) {
+      // Handle call status changes
+      const oldIsCall = payload.old_status === 'AI_AGENT_CALLING' || payload.old_status === 'HUMAN_AGENT_CALLING';
+      const newIsCall = payload.new_status === 'AI_AGENT_CALLING' || payload.new_status === 'HUMAN_AGENT_CALLING';
+      
+      if (oldIsCall && !newIsCall) {
+        // Call ended due to status change
         setIsCallActive(false);
+      } else if (!oldIsCall && newIsCall) {
+        // Call started due to status change
+        setIsCallActive(true);
       }
     });
 
