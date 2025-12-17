@@ -1,6 +1,6 @@
 // Auth Types (H20)
 export interface RegisterRequest {
-  phone_number: string;
+  email: string;
   password: string;
   full_name: string;
   address: string;
@@ -13,7 +13,7 @@ export interface RegisterResponse {
 }
 
 export interface LoginRequest {
-  phone_number: string;
+  email: string;
   password: string;
 }
 
@@ -27,9 +27,10 @@ export interface LoginResponse {
 }
 
 export interface Customer {
-  customer_id: number;
-  phone_number: string;
+  customer_id: number | string;
+  email?: string;
   full_name: string;
+  phone_number?: string;
   status: string;
 }
 

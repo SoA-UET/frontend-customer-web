@@ -1,27 +1,45 @@
-import { useState, FormEvent } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useState, useEffect, FormEvent } from 'react';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts';
-import { Phone, Lock, Eye, EyeOff, AlertCircle, Loader2 } from 'lucide-react';
+import { User, Phone, Lock, Eye, EyeOff, AlertCircle, Loader2 } from 'lucide-react';
 
 export default function LoginPage() {
   const navigate = useNavigate();
-  const { login, loginWithGoogle, loading, error, clearError } = useAuth();
+  const location = useLocation();
+  const { login, loginWithGoogle, loading, error, clearError, isAuthenticated } = useAuth();
   
-  const [phoneNumber, setPhoneNumber] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  
+  // Check for OAuth error in URL and clean it up
+  useEffect(() => {
+    const urlParams = new URLSearchParams(location.search);
+    const urlError = urlParams.get('error');
+    
+    if (urlError && urlError !== 'oauth_failed') {
+      // Clean up URL for other error types
+      window.history.replaceState({}, document.title, '/login');
+    }
+  }, [location.search]);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     clearError();
     
     try {
-      await login({ phone_number: phoneNumber, password });
-      navigate('/chat');
+      await login({ email, password });
     } catch {
       // Error is handled by context
     }
   };
+
+  // Redirect to home after successful authentication (email/password or Google)
+  useEffect(() => {
+    if (isAuthenticated) {
+      navigate('/', { replace: true });
+    }
+  }, [isAuthenticated, navigate]);
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
@@ -51,15 +69,15 @@ export default function LoginPage() {
             {/* Phone Number Input */}
             <div>
               <label className="block text-sm font-medium text-text-main mb-1.5">
-                Số điện thoại
+                Email
               </label>
               <div className="relative">
-                <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-text-muted" />
+                <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-text-muted" />
                 <input
-                  type="tel"
-                  value={phoneNumber}
-                  onChange={(e) => setPhoneNumber(e.target.value)}
-                  placeholder="0912345678"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="example@email.com"
                   className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-button focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
                   required
                 />

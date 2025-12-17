@@ -18,7 +18,7 @@ export default function RegisterPage() {
   const { register, loading, error, clearError } = useAuth();
   
   const [formData, setFormData] = useState({
-    phone_number: '',
+    email: '',
     password: '',
     confirmPassword: '',
     full_name: '',
@@ -32,10 +32,10 @@ export default function RegisterPage() {
   const validateForm = (): boolean => {
     const errors: string[] = [];
     
-    // Phone validation (Vietnamese format)
-    const phoneRegex = /^(0[3|5|7|8|9])+([0-9]{8})$/;
-    if (!phoneRegex.test(formData.phone_number)) {
-      errors.push('Số điện thoại không hợp lệ');
+    // Email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(formData.email)) {
+      errors.push('Email không hợp lệ');
     }
 
     // Password validation
@@ -75,7 +75,7 @@ export default function RegisterPage() {
 
     try {
       await register({
-        phone_number: formData.phone_number,
+        email: formData.email,
         password: formData.password,
         full_name: formData.full_name,
         address: formData.address,
@@ -149,15 +149,15 @@ export default function RegisterPage() {
             {/* Phone Number Input */}
             <div>
               <label className="block text-sm font-medium text-text-main mb-1.5">
-                Số điện thoại <span className="text-error">*</span>
+                Email <span className="text-error">*</span>
               </label>
               <div className="relative">
-                <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-text-muted" />
+                <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-text-muted" />
                 <input
-                  type="tel"
-                  value={formData.phone_number}
-                  onChange={(e) => handleChange('phone_number', e.target.value)}
-                  placeholder="0912345678"
+                  type="email"
+                  value={formData.email}
+                  onChange={(e) => handleChange('email', e.target.value)}
+                  placeholder="example@email.com"
                   className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-button focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
                   required
                 />
