@@ -1,0 +1,341 @@
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { useConversation } from '../../contexts';
+import {
+  Phone,
+  PhoneOff,
+  Mic,
+  MicOff,
+  Bot,
+  Users,
+  Volume2,
+  Loader2,
+} from 'lucide-react';
+
+interface VoiceCallModalProps {
+  onClose: () => void;
+}
+
+export default function VoiceCallModal({ onClose }: VoiceCallModalProps) {
+  const {
+    currentConversation,
+    endCall,
+    isMuted,
+    toggleMute,
+    isCallActive,
+    submitAudio,
+    audioToPlay,
+    clearAudioToPlay,
+  } = useConversation();
+
+  const [callDuration, setCallDuration] = useState(0);
+  const [isRecording, setIsRecording] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [callStatus, setCallStatus] = useState<'connecting' | 'connected' | 'ended'>('connecting');
+
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const durationIntervalRef = useRef<number | null>(null);
+
+  // Start call timer
+  useEffect(() => {
+    if (callStatus === 'connected') {
+      durationIntervalRef.current = window.setInterval(() => {
+        setCallDuration((prev) => prev + 1);
+      }, 1000);
+    }
+
+    return () => {
+      if (durationIntervalRef.current) {
+        clearInterval(durationIntervalRef.current);
+      }
+    };
+  }, [callStatus]);
+
+  // Initialize audio context and start recording
+  useEffect(() => {
+    const initAudio = async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        streamRef.current = stream;
+        audioContextRef.current = new AudioContext({ sampleRate: 16000 });
+        
+        setCallStatus('connected');
+        startRecording(stream);
+      } catch (error) {
+        console.error('Failed to access microphone:', error);
+        alert('Không thể truy cập microphone. Vui lòng cấp quyền và thử lại.');
+        handleHangUp();
+      }
+    };
+
+    if (isCallActive) {
+      initAudio();
+    }
+
+    return () => {
+      stopRecording();
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+      }
+      if (audioContextRef.current) {
+        audioContextRef.current.close();
+      }
+    };
+  }, [isCallActive]);
+
+  // Handle audio playback from server
+  useEffect(() => {
+    if (audioToPlay) {
+      playAudio(audioToPlay);
+      clearAudioToPlay();
+    }
+  }, [audioToPlay, clearAudioToPlay]);
+
+  const startRecording = (stream: MediaStream) => {
+    const mediaRecorder = new MediaRecorder(stream, {
+      mimeType: 'audio/webm',
+    });
+    
+    mediaRecorderRef.current = mediaRecorder;
+    audioChunksRef.current = [];
+
+    mediaRecorder.ondataavailable = (event) => {
+      if (event.data.size > 0) {
+        audioChunksRef.current.push(event.data);
+      }
+    };
+
+    mediaRecorder.onstop = async () => {
+      if (audioChunksRef.current.length > 0) {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        // Convert to WAV format if needed
+        await submitAudioRecording(audioBlob);
+      }
+    };
+
+    mediaRecorder.start();
+    setIsRecording(true);
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+    }
+  };
+
+  const submitAudioRecording = async (audioBlob: Blob) => {
+    try {
+      // For AI_AGENT_CALLING mode, submit via HTTP endpoint
+      if (currentConversation?.status === 'AI_AGENT_CALLING') {
+        // Convert webm to wav
+        const wavBlob = await convertToWav(audioBlob);
+        await submitAudio(wavBlob);
+      }
+    } catch (error) {
+      console.error('Failed to submit audio:', error);
+    }
+  };
+
+  const convertToWav = async (blob: Blob): Promise<Blob> => {
+    // Simple conversion - in production, use a proper library
+    const arrayBuffer = await blob.arrayBuffer();
+    const audioContext = new AudioContext({ sampleRate: 16000 });
+    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+    
+    // Get PCM data
+    const channelData = audioBuffer.getChannelData(0);
+    const wavBuffer = encodeWav(channelData, 16000);
+    
+    return new Blob([wavBuffer], { type: 'audio/wav' });
+  };
+
+  const encodeWav = (samples: Float32Array, sampleRate: number): ArrayBuffer => {
+    const buffer = new ArrayBuffer(44 + samples.length * 2);
+    const view = new DataView(buffer);
+
+    // WAV header
+    writeString(view, 0, 'RIFF');
+    view.setUint32(4, 36 + samples.length * 2, true);
+    writeString(view, 8, 'WAVE');
+    writeString(view, 12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * 2, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);
+    writeString(view, 36, 'data');
+    view.setUint32(40, samples.length * 2, true);
+
+    // PCM samples
+    let offset = 44;
+    for (let i = 0; i < samples.length; i++) {
+      const s = Math.max(-1, Math.min(1, samples[i]));
+      view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+      offset += 2;
+    }
+
+    return buffer;
+  };
+
+  const writeString = (view: DataView, offset: number, string: string) => {
+    for (let i = 0; i < string.length; i++) {
+      view.setUint8(offset + i, string.charCodeAt(i));
+    }
+  };
+
+  const playAudio = async (audioData: ArrayBuffer) => {
+    try {
+      setIsPlaying(true);
+      const audioContext = new AudioContext();
+      const audioBuffer = await audioContext.decodeAudioData(audioData.slice(0));
+      const source = audioContext.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(audioContext.destination);
+      source.onended = () => {
+        setIsPlaying(false);
+        // Resume recording after playback
+        if (streamRef.current && !isRecording) {
+          startRecording(streamRef.current);
+        }
+      };
+      source.start();
+    } catch (error) {
+      console.error('Failed to play audio:', error);
+      setIsPlaying(false);
+    }
+  };
+
+  const handleHangUp = useCallback(() => {
+    stopRecording();
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+    }
+    setCallStatus('ended');
+    endCall();
+    setTimeout(onClose, 500);
+  }, [endCall, onClose]);
+
+  const handleToggleMute = () => {
+    if (streamRef.current) {
+      streamRef.current.getAudioTracks().forEach(track => {
+        track.enabled = isMuted;
+      });
+    }
+    toggleMute();
+  };
+
+  const formatDuration = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const isAICall = currentConversation?.status === 'AI_AGENT_CALLING';
+
+  return (
+    <div className="fixed inset-0 bg-gradient-to-b from-primary-800 to-primary-900 flex flex-col items-center justify-center z-50">
+      {/* Voice On Badge */}
+      <div className="absolute top-6 right-6">
+        <span className="px-4 py-2 bg-white/20 text-white rounded-full text-sm font-medium">
+          Voice On
+        </span>
+      </div>
+
+      {/* Avatar */}
+      <div className="relative mb-6">
+        <div className="w-32 h-32 rounded-full bg-gradient-to-br from-primary-400 to-primary-600 flex items-center justify-center shadow-xl call-pulse">
+          {isAICall ? (
+            <Bot className="w-16 h-16 text-white" />
+          ) : (
+            <Users className="w-16 h-16 text-white" />
+          )}
+        </div>
+        
+        {/* Status indicator */}
+        {isPlaying && (
+          <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 bg-white px-3 py-1 rounded-full shadow-lg flex items-center gap-2">
+            <Volume2 className="w-4 h-4 text-primary animate-pulse" />
+            <span className="text-xs text-text-main font-medium">Đang phát</span>
+          </div>
+        )}
+      </div>
+
+      {/* Caller Name */}
+      <h2 className="text-2xl font-semibold text-white mb-2">
+        {isAICall ? 'AI Tư vấn' : 'Nhân viên hỗ trợ'}
+      </h2>
+
+      {/* App Name */}
+      <p className="text-4xl font-bold text-white mb-4">(Telcenter)</p>
+
+      {/* Call Status */}
+      <div className="flex items-center gap-2 mb-8">
+        {callStatus === 'connecting' ? (
+          <>
+            <Loader2 className="w-5 h-5 text-white/80 animate-spin" />
+            <span className="text-white/80">Đang kết nối...</span>
+          </>
+        ) : callStatus === 'ended' ? (
+          <span className="text-white/80">Cuộc gọi đã kết thúc</span>
+        ) : (
+          <>
+            <Phone className="w-5 h-5 text-success animate-pulse" />
+            <span className="text-white/80">{formatDuration(callDuration)}</span>
+          </>
+        )}
+      </div>
+
+      {/* Recording Indicator */}
+      {isRecording && !isMuted && callStatus === 'connected' && (
+        <div className="mb-8 flex items-center gap-2 px-4 py-2 bg-error/20 rounded-full">
+          <div className="w-3 h-3 bg-error rounded-full animate-pulse" />
+          <span className="text-white text-sm">Đang ghi âm...</span>
+        </div>
+      )}
+
+      {/* Controls */}
+      <div className="flex items-center gap-6">
+        {/* Mute Button */}
+        <button
+          onClick={handleToggleMute}
+          disabled={callStatus !== 'connected'}
+          className={`p-4 rounded-full transition-all ${
+            isMuted
+              ? 'bg-error text-white'
+              : 'bg-white/20 text-white hover:bg-white/30'
+          } disabled:opacity-50 disabled:cursor-not-allowed`}
+        >
+          {isMuted ? (
+            <MicOff className="w-6 h-6" />
+          ) : (
+            <Mic className="w-6 h-6" />
+          )}
+        </button>
+
+        {/* Hang Up Button */}
+        <button
+          onClick={handleHangUp}
+          className="p-5 bg-error text-white rounded-full hover:bg-red-600 transition-all shadow-lg hover:shadow-xl"
+        >
+          <PhoneOff className="w-8 h-8" />
+        </button>
+      </div>
+
+      {/* Labels */}
+      <div className="flex items-center gap-16 mt-4 text-white/80 text-sm">
+        <span>{isMuted ? 'Unmute' : 'Mute'}</span>
+        <span>Hang up</span>
+      </div>
+
+      {/* Disclaimer */}
+      <p className="absolute bottom-6 text-white/50 text-xs">
+        Cuộc gọi đang được ghi âm để cải thiện chất lượng dịch vụ
+      </p>
+    </div>
+  );
+}
