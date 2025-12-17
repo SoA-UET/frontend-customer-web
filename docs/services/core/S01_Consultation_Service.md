@@ -144,6 +144,19 @@ This flow happens when the conversation
     response coming in several chunks to Core Portal (Frontend) via H19
     (`text:start`, `text:chunk` and `text:stop` events).
 
+7. Core Consultation Service (S01) also collects
+    the AI-generated response chunks, concatenates
+    them into a full text, and saves it as a new message
+    into its database.
+
+    In case S02 returns an error response with
+    content "FORWARD", S01 creates an artificial
+    message in the conversation to notify the customer that
+    AI Agent could not answer the question, and that
+    any new messages will be forwarded to a human agent
+    at a partner system. Also, S01 updates the conversation
+    `status` to `FORWARDING`.
+
 ### Subthread Flow 1: Customer Satisfaction Analysis
 
 This is asynchronous and must be done in a separate thread,
@@ -247,6 +260,14 @@ This flow happens when the conversation
     response chunks, concatenates them into a full text,
     and sends it to Speech Service (S20) via A38
     for Text-to-Speech conversion.
+    
+    In case S02 returns an error response with
+    content "FORWARD", S01 sends to S20 this
+    text for TTS conversion instead:
+    
+    ```
+    Xin lỗi Quý khách, tôi không thể trả lời câu hỏi này.
+    ```
 
 10. Speech Service (S20) returns the audio file to
     Core Consultation Service (S01)
@@ -281,16 +302,34 @@ has already been `FORWARDING`, and the user
 sends a new text message (but NOT a voice call
 or any audio input).
 
-1. Core Consultation Service (S01) calls
+1. Regardless of the customer's message, S01,
+    when seeing that the conversation `status`
+    is `FORWARDING`, sends a new message
+    back to customer via H19
+    to notify him/her that the conversation
+    is being forwarded to a human agent.
+    The message reads:
+
+    ```
+    Chúng tôi xin lỗi vì đã đem đến trải nghiệm không tốt cho Quý khách.
+    Quý khách hãy chờ trong giây lát để được chuyển tiếp tới tư vấn viên phù hợp.
+    ```
+
+    "Sending" the message here means that S01 not
+    only returns the message to the frontend
+    via H19, but also saves it as a new message
+    into its database.
+
+2. Core Consultation Service (S01) calls
     Core Forwarded Partner Selection Service (S18)
     via A35 to select a suitable partner
     for handling the conversation.
 
-2. Core Forwarded Partner Selection Service (S18)
+3. Core Forwarded Partner Selection Service (S18)
     returns the selected partner ID to Core Consultation
     Service (S01) via A35.
 
-3. Core Consultation Service (S01) creates
+4. Core Consultation Service (S01) creates
     a forwarded consultation request
     and sends it to Partner Consultation Service (S13)
     via A10 (event `consultation_request`).
@@ -300,7 +339,7 @@ or any audio input).
     and that he/she should wait for a human agent
     to take over.
 
-4. Partner Consultation Service (S13) acknowledges
+5. Partner Consultation Service (S13) acknowledges
     the forwarded consultation request
     via A10 (event `consultation_response`).
 
@@ -317,7 +356,7 @@ or any audio input).
     In that case, S01 updates the conversation `status`
     to `HUMAN_AGENT_TEXTING`.
 
-5. The forwarding process completes. Core Consultation Service (S01)
+6. The forwarding process completes. Core Consultation Service (S01)
     notifies Core Portal (Frontend) via H19 event `status:switch`
     that the conversation status has changed to `HUMAN_AGENT_TEXTING`.
 
