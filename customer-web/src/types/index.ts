@@ -56,9 +56,9 @@ export interface CreateConversationRequest {
 }
 
 export interface Message {
-  id: string;
+  id: string | null;
   conversation_id: string;
-  sender: 'customer' | 'ai' | 'human_agent';
+  sender_type: 'CUSTOMER' | 'AI_AGENT' | 'HUMAN_AGENT';
   content: string;
   created_at: string;
   emotion?: string;
@@ -83,8 +83,6 @@ export interface RatingRequest {
 // Socket.IO Event Payloads
 export interface TextStartPayload {
   conversation_id: string;
-  message_id: string;
-  sender: 'ai' | 'human_agent';
 }
 
 export interface TextChunkPayload {
@@ -92,6 +90,7 @@ export interface TextChunkPayload {
   message_id: string;
   content: string;
   is_final: boolean;
+  sender_type: 'AI_AGENT' | 'HUMAN_AGENT';
 }
 
 export interface TextStopPayload {

@@ -19,8 +19,7 @@ import type {
 } from '../types';
 
 interface StreamingMessage {
-  id: string;
-  sender: 'ai' | 'human_agent';
+  sender_type: 'AI_AGENT' | 'HUMAN_AGENT' | null;
   content: string;
   isStreaming: boolean;
 }
@@ -71,8 +70,7 @@ export function ConversationProvider({ children }: { children: ReactNode }) {
     socketService.onTextStart((payload: TextStartPayload) => {
       console.log('text_start:', payload);
       setStreamingMessage({
-        id: payload.message_id,
-        sender: payload.sender,
+        sender_type: null,
         content: '',
         isStreaming: true,
       });
@@ -81,10 +79,11 @@ export function ConversationProvider({ children }: { children: ReactNode }) {
     socketService.onTextChunk((payload: TextChunkPayload) => {
       console.log('text_chunk:', payload);
       setStreamingMessage((prev) => {
-        if (!prev || prev.id !== payload.message_id) return prev;
+        if (!prev) return null;
         return {
           ...prev,
           content: prev.content + payload.content,
+          sender_type: payload.sender_type,
         };
       });
     });
@@ -92,13 +91,13 @@ export function ConversationProvider({ children }: { children: ReactNode }) {
     socketService.onTextStop((payload: TextStopPayload) => {
       console.log('text_stop:', payload);
       setStreamingMessage((prev) => {
-        if (!prev || prev.id !== payload.message_id) return null;
+        if (!prev) return null;
         
         // Add the completed message to messages list
         const completedMessage: Message = {
-          id: prev.id,
+          id: null,
           conversation_id: currentConversation?.id || '',
-          sender: prev.sender,
+          sender_type: prev.sender_type || "AI_AGENT",
           content: prev.content,
           created_at: new Date().toISOString(),
         };
@@ -210,21 +209,21 @@ export function ConversationProvider({ children }: { children: ReactNode }) {
       const optimisticMessage: Message = {
         id: `temp-${Date.now()}`,
         conversation_id: currentConversation.id,
-        sender: 'customer',
+        sender_type: 'CUSTOMER',
         content,
         created_at: new Date().toISOString(),
       };
       setMessages((prev) => [...prev, optimisticMessage]);
 
-      const response = await consultationService.sendMessage(currentConversation.id, { content });
+      /*const response = */await consultationService.sendMessage(currentConversation.id, { content });
       
       // Replace optimistic message with real one
-      setMessages((prev) =>
-        prev.map((m) => (m.id === optimisticMessage.id ? response.content : m))
-      );
+      // setMessages((prev) =>
+      //   prev.map((m) => (m.id === optimisticMessage.id ? response.content : m))
+      // );
     } catch (err: unknown) {
       // Remove optimistic message on error
-      setMessages((prev) => prev.filter((m) => !m.id.startsWith('temp-')));
+      // setMessages((prev) => prev.filter((m) => !m.id.startsWith('temp-')));
       const error = err as { response?: { data?: { message?: string } } };
       setError(error.response?.data?.message || 'Không thể gửi tin nhắn');
     }

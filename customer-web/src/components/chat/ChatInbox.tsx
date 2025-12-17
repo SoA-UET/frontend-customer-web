@@ -230,7 +230,7 @@ export default function ChatInbox() {
 
             {streamingMessage && (
               <StreamingMessage
-                sender={streamingMessage.sender}
+                sender_type={streamingMessage.sender_type}
                 content={streamingMessage.content}
               />
             )}

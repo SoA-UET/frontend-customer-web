@@ -8,8 +8,9 @@ interface MessageBubbleProps {
 }
 
 export default function MessageBubble({ message, isStreaming = false }: MessageBubbleProps) {
-  const isCustomer = message.sender === 'customer';
-  const isAI = message.sender === 'ai';
+  const isCustomer = message.sender_type === 'CUSTOMER';
+  const isAI = message.sender_type === 'AI_AGENT';
+  const isSenderTypeUnknown = message.sender_type == null;
 
   const formatTime = (dateStr: string) => {
     const date = new Date(dateStr);
@@ -32,6 +33,7 @@ export default function MessageBubble({ message, isStreaming = false }: MessageB
   const getSenderName = () => {
     if (isCustomer) return 'Bạn';
     if (isAI) return 'AI Tư vấn';
+    if (isSenderTypeUnknown) return 'Đang nhập...';
     return 'Nhân viên hỗ trợ';
   };
 
@@ -92,11 +94,11 @@ export default function MessageBubble({ message, isStreaming = false }: MessageB
 }
 
 interface StreamingMessageProps {
-  sender: 'ai' | 'human_agent';
+  sender_type: 'AI_AGENT' | 'HUMAN_AGENT' | null;
   content: string;
 }
 
-export function StreamingMessage({ sender, content }: StreamingMessageProps) {
+export function StreamingMessage({ sender_type, content }: StreamingMessageProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -105,7 +107,7 @@ export function StreamingMessage({ sender, content }: StreamingMessageProps) {
     }
   }, [content]);
 
-  const isAI = sender === 'ai';
+  const isAI = sender_type === 'AI_AGENT';
 
   return (
     <div ref={containerRef} className="flex gap-3 message-enter">
