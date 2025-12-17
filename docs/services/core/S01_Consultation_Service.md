@@ -413,8 +413,7 @@ This flow only happens when the conversation
 
 3. S01, upon receiving that `call:start` event,
     and notifies Partner Consultation Service (S13)
-    via A10a (event `audio_start`) that
-    the customer is starting a voice call, via
+    that the customer is starting a voice call, via
     A10a event `call_start`.
 
 4. The human agent at the Partner system
