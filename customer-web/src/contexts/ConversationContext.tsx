@@ -6,7 +6,10 @@ import {
   useCallback,
   ReactNode,
 } from 'react';
+
 import { consultationService, socketService } from '../services';
+socketService.connect();
+
 import type {
   Conversation,
   Message,
@@ -65,8 +68,6 @@ export function ConversationProvider({ children }: { children: ReactNode }) {
 
   // Setup Socket.IO event handlers
   useEffect(() => {
-    socketService.connect();
-
     socketService.onTextStart((payload: TextStartPayload) => {
       console.log('text_start:', payload);
       setStreamingMessage({
