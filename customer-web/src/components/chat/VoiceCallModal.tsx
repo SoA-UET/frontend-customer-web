@@ -70,6 +70,13 @@ export default function VoiceCallModal({ onClose }: VoiceCallModalProps) {
     preSpeechPadFrames: 1,
     minSpeechFrames: 3,
     submitUserSpeechOnPause: true,
+
+    // https://github.com/ricky0123/vad/issues/121#issuecomment-2367242926
+    ortConfig: (ort) => {
+      ort.env.wasm.wasmPaths = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.19.0/dist/";
+    },
+    workletURL: "https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.18/dist/vad.worklet.bundle.min.js",
+    modelURL: "https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.18/dist/silero_vad.onnx",
   });
 
   // Start call timer
