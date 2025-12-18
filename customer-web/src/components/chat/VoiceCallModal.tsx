@@ -38,6 +38,7 @@ export default function VoiceCallModal({ onClose }: VoiceCallModalProps) {
   const streamRef = useRef<MediaStream | null>(null);
   const durationIntervalRef = useRef<number | null>(null);
   const audioWorkletNodeRef = useRef<AudioWorkletNode | null>(null);
+  const audioElementRef = useRef<HTMLAudioElement | null>(null);
 
   // Determine call mode based on conversation status
   const isAICall = currentConversation?.status === 'AI_AGENT_CALLING';
@@ -270,21 +271,22 @@ export default function VoiceCallModal({ onClose }: VoiceCallModalProps) {
         vad.pause();
       }
       
-      const audioContext = new AudioContext();
-      const audioBuffer = await audioContext.decodeAudioData(audioData.slice(0));
-      const source = audioContext.createBufferSource();
-      source.buffer = audioBuffer;
-      source.connect(audioContext.destination);
-      source.onended = () => {
-        setIsPlaying(false);
-        audioContext.close();
-        
-        // Resume VAD after playback if in AI mode
-        if (isAICall && isCallActive) {
-          vad.start();
-        }
-      };
-      source.start();
+      const audioElement = audioElementRef.current;
+      if (!audioElement) {
+        throw new Error('Audio element not available');
+      }
+      
+      // Create Blob from ArrayBuffer
+      const blob = new Blob([audioData], { type: 'audio/mpeg' });
+      const url = URL.createObjectURL(blob);
+      
+      // Clean up previous URL if exists
+      if (audioElement.src) {
+        URL.revokeObjectURL(audioElement.src);
+      }
+      
+      audioElement.src = url;
+      await audioElement.play();
     } catch (error) {
       console.error('Failed to play audio:', error);
       setIsPlaying(false);
@@ -326,6 +328,25 @@ export default function VoiceCallModal({ onClose }: VoiceCallModalProps) {
 
   return (
     <div className="fixed inset-0 bg-gradient-to-b from-primary-800 to-primary-900 flex flex-col items-center justify-center z-50">
+      {/* Hidden audio element for playback */}
+      <audio
+        ref={audioElementRef}
+        className="hidden"
+        onEnded={() => {
+          setIsPlaying(false);
+          // Resume VAD after playback if in AI mode
+          if (isAICall && isCallActive) {
+            vad.start();
+          }
+        }}
+        onError={() => {
+          setIsPlaying(false);
+          // Resume VAD even on error
+          if (isAICall && isCallActive) {
+            vad.start();
+          }
+        }}
+      />
       {/* Voice On Badge */}
       <div className="absolute top-6 right-6">
         <span className="px-4 py-2 bg-white/20 text-white rounded-full text-sm font-medium">
