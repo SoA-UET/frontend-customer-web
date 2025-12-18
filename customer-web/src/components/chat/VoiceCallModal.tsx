@@ -262,7 +262,7 @@ export default function VoiceCallModal({ onClose }: VoiceCallModalProps) {
     }
   };
 
-  const playAudio = async (audioData: ArrayBuffer) => {
+  const playAudio = async (audioData: ArrayBuffer | any) => {
     try {
       setIsPlaying(true);
       
@@ -276,8 +276,24 @@ export default function VoiceCallModal({ onClose }: VoiceCallModalProps) {
         throw new Error('Audio element not available');
       }
       
-      // Create Blob from ArrayBuffer
-      const blob = new Blob([audioData], { type: 'audio/mpeg' });
+      // Handle audio_file event payload structure
+      let audioBuffer: ArrayBuffer;
+      let mimeType: string = 'audio/mpeg'; // default
+      
+      if (audioData.audio && audioData.mime_type) {
+        // It's an audio_file event payload
+        audioBuffer = audioData.audio;
+        mimeType = audioData.mime_type;
+        if (mimeType == 'mp3') {
+          mimeType = 'audio/mpeg';
+        }
+      } else {
+        // It's a raw ArrayBuffer
+        audioBuffer = audioData;
+      }
+      
+      // Create Blob from ArrayBuffer with correct MIME type
+      const blob = new Blob([audioBuffer], { type: mimeType });
       const url = URL.createObjectURL(blob);
       
       // Clean up previous URL if exists
