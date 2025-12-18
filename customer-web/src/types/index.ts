@@ -128,8 +128,8 @@ export interface AudioStopPayload {
 
 export interface AudioFilePayload {
   conversation_id: string;
-  audio: ArrayBuffer;
-  mime_type: string;
+  audio_data: ArrayBuffer;
+  format: string;
 }
 
 // API Error Response

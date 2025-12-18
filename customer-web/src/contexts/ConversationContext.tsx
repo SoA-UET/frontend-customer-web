@@ -139,7 +139,7 @@ export function ConversationProvider({ children }: { children: ReactNode }) {
 
     socketService.onAudioFile((payload: AudioFilePayload) => {
       console.log('audio_file received:', payload);
-      setAudioToPlay(payload.audio);
+      setAudioToPlay(payload.audio_data);
     });
 
     return () => {
