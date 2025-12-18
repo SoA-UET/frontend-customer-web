@@ -282,8 +282,8 @@ export default function VoiceCallModal({ onClose }: VoiceCallModalProps) {
       
       if (audioData.audio && audioData.mime_type) {
         // It's an audio_file event payload
-        audioBuffer = audioData.audio;
-        mimeType = audioData.mime_type;
+        audioBuffer = audioData.audio || audioData.audio_data;
+        mimeType = audioData.mime_type || audioData.format;
         if (mimeType == 'mp3') {
           mimeType = 'audio/mpeg';
         }
